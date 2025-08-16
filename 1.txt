@@ -1,0 +1,170 @@
+ShootGame — 第三人称生存射击游戏开发文档
+
+一、项目启动
+1. 项目背景与目标
+   - 主题：第三人称3D生存射击游戏（Third-Person Survival Shooter）
+   - 类型：动作射击 / 生存
+   - 开发环境：Unity 3D（C#），基于 Unity 官方 Survival Shooter 教程进行二次开发与扩展
+   - 目标：实现完整的生存射击玩法，包括玩家移动/瞄准/射击、敌人AI寻路与攻击、计分系统、UI面板管理、音效与特效反馈等核心功能，并通过引入第三方插件（Cinemachine、DOTween、DamageNumbersPro、TextMesh Pro）提升游戏品质
+
+2. 团队组建
+   - 项目负责人（1人）：统筹项目进度、文档编写、答辩展示
+   - 程序开发（1人）：实现所有游戏逻辑与系统模块
+   - 美术设计（1人）：负责角色模型、场景布局、UI视觉设计
+   - 测试人员（1人）：负责功能测试与 Bug 修复验证
+
+二、前期策划
+1. 游戏概念设计
+   - 基本玩法：玩家在封闭3D场景中操控角色，使用鼠标瞄准/左键射击从四面刷新的敌人，存活尽可能长时间并获取高分
+   - 故事背景：玩家被困在一片废弃设施中，四周不断涌出怪物，需要利用手中的武器生存下去
+   - 角色设定：
+     - 玩家角色：持枪生存者，第三人称视角
+     - 敌人：近战怪物，通过 NavMesh 寻路追击玩家，靠近后发动攻击
+   - 胜利条件：无终点，以生存时长/击杀分数为衡量标准
+   - 失败条件：玩家生命值归零 → 显示 Game Over 面板
+
+2. 游戏机制设计
+   - 核心玩法：
+     - WASD / 方向键控制移动，鼠标控制视角朝向
+     - 左键射击（Hitscan 射线检测），每次造成 20~30 点伤害
+     - 射击有冷却时间（约 0.15s），附带枪口火焰 + 弹道线 + 灯光闪烁效果
+   - 游戏规则：
+     - 玩家初始生命值 100，受敌人攻击减少，归零则游戏结束
+     - 敌人初始生命值 100，归零则死亡并增加玩家分数（+10分/只）
+     - 敌人通过 NavMeshAgent 追踪玩家，进入攻击范围后以 1s 间隔造成 10~20 点伤害
+     - 敌人从多个 SpawnPoint 周期性刷新，玩家死亡后停止刷新
+   - 关卡设计：单关卡生存场景，无固定波次，敌人持续刷新
+   - 经济/成长系统：无（纯生存计分类游戏）
+
+3. 游戏逻辑流程
+   - 游戏流程：
+     BeginScene（主菜单）
+       ├─ [开始游戏] → 加载 GameScene
+       │                  ├─ 初始化玩家、敌人管理器、UI
+       │                  ├─ 游戏循环：移动→射击→敌人刷怪→敌人追踪攻击
+       │                  └─ 玩家死亡 → 显示 GameOverPanel
+       │                      ├─ [重新开始] → 重置分数 & 重新加载 GameScene
+       │                      └─ [返回主菜单] → 加载 BeginScene
+       └─ [退出游戏] → Application.Quit()
+   - 操作流程：
+     - WASD：角色前后左右移动
+     - 鼠标移动：控制角色朝向（射线投射到地面层）
+     - 鼠标左键：射击
+     - ESC：暂停/继续（参考版本实现）
+
+三、美术资源制作
+1. 角色设计与建模
+   - 玩家角色：第三人称持枪角色模型，包含 Idle / Walk / Die 等动画
+   - 敌人角色：类僵尸/怪物模型，包含 Walk / Attack / Die 等动画
+   - 动画通过 Animator Controller 进行状态机管理
+
+2. 场景设计与绘制
+   - 主场景：包含建筑废墟、道路、障碍物等的封闭3D场景
+   - 道具与装饰：场景中散布的箱子、路障等环境物体
+   - 光照：Unity 灯光系统提供场景照明
+   - 地面层（Ground）与射击层（Shootable）通过 Layer 进行碰撞过滤
+
+3. 特效制作
+   - 射击特效：枪口粒子系统（MuzzleFlash）、弹道 LineRenderer、灯光闪烁
+   - 受击特效：敌人被击中时在命中点生成粒子效果（HitParticles）
+   - 玩家受伤特效：屏幕红闪 UI（DamageFlash Image）
+   - 伤害数字：使用 DamageNumbersPro 插件在敌人被击中处弹出浮动伤害数值
+   - 相机震动：使用 Cinemachine Impulse Source 在敌人攻击时触发屏幕震动
+   - UI过渡：CanvasGroup 淡入淡出（FadeIn/FadeOut）动画，由 BasePanel 基类统一管理
+
+四、程序开发
+1. 游戏架构设计
+   - 整体采用 Unity 组件式（Component-based）架构，每个功能模块作为独立 MonoBehaviour 挂载在对应 GameObject 上
+   - 核心架构层次：
+     ┌───────────── UI层 ─────────────┐
+     │  UIManager（单例）             │
+     │  ├─ BasePanel（抽象基类）       │
+     │  │   ├─ BeginPanel（主菜单面板）│
+     │  │   └─ GameOverPanel（结束面板）│
+     │  └─ DamageText（浮动伤害文字）  │
+     ├────────── 游戏逻辑层 ──────────┤
+     │  玩家：PlayerMovement /        │
+     │        PlayerShooting /        │
+     │        PlayerHealth /          │
+     │        MyplayerScore           │
+     │  敌人：MyEnemyMovement /       │
+     │        MyEnemyHealth /         │
+     │        MyEnemyAttack           │
+     │  管理器：MyEnemyManager /      │
+     │          ScoreManager /        │
+     │          GameOverManager       │
+     ├────────── 基础设施层 ──────────┤
+     │  BGMPlayerController（背景音乐）│
+     │  Cinemachine Impulse（相机震动）│
+     │  NavMesh（敌人寻路）           │
+     └──────────────────────────────┘
+   - 设计模式：单例模式（UIManager）、抽象基类模式（BasePanel）、管理器模式（EnemyManager）
+
+2. 功能模块开发
+   A. 玩家控制模块
+      - PlayerMovement.cs：Transform.Translate 实现 WASD 移动，通过射线检测将角色转向鼠标位置
+      - PlayerHealth.cs（/ MyPlayerHealth.cs）：管理 100 HP，受伤时触发 UI 红闪，死亡时禁用操控并弹出 GameOverPanel
+      - PlayerShooting.cs（/ MyPlayerShooting.cs）：每 0.15s 一发射线检测射击，造成 30 点伤害，附带枪火/弹道/灯光效果
+      - MyplayerScore.cs：静态变量存储分数，TextMeshPro 实时显示
+
+   B. 敌人模块
+      - MyEnemyMovement.cs：NavMeshAgent 追踪玩家位置，根据移动速度切换 Walk 动画
+      - MyEnemyHealth.cs：管理 100 HP，受伤时弹出 DamageNumbersPro 数字、生成命中粒子，死亡时销毁并增加 10 分
+      - MyEnemyAttack.cs：触发器检测玩家进入攻击范围，定时造成 20 点伤害并触发 Cinemachine 相机震动 + 屏幕红闪
+
+   C. 管理器模块
+      - MyEnemyManager.cs：使用 InvokeRepeating 每 2s 在指定位置生成敌人，玩家死亡时停止
+      - ScoreManager.cs：管理静态全局分数，通过 UI Text 显示
+      - GameOverManager.cs：检测玩家生命值归零后触发 GameOver 动画
+
+   D. UI 系统模块
+      - UIManager.cs（单例）：动态创建 Canvas，从 Resources/UI/ 按需加载 Panel，支持自动销毁旧面板
+      - BasePanel.cs（抽象类）：封装 CanvasGroup 的 FadeIn/FadeOut 动画逻辑，抽象 Init() 方法供子类注册按钮事件
+      - BeginPanel.cs：提供 "开始游戏"（加载 GameScene）和 "退出游戏" 按钮
+      - GameOverPanel.cs：提供 "重新开始"（重置分数并重载场景）和 "返回主菜单" 按钮
+      - DamageText.cs：使用 DOTween 实现浮动文字向上移动并渐隐，自动销毁
+
+   E. 音频模块
+      - BGMPlayerController.cs：单例模式，在 BeginScene 启动时创建，DontDestroyOnLoad 跨场景保持
+
+   F. 第三方集成
+      - DamageNumbersPro：接收伤害数值与命中位置，在 3D 空间弹出浮动数字
+      - Cinemachine：敌人攻击时通过 Impulse Source 产生相机震动反馈
+      - DOTween：用于 DamageText 的平滑渐隐动画
+      - TextMesh Pro：替代 Unity 旧版 Text，呈现更清晰的 UI 文字
+
+3. 优化与调试
+   - 性能优化：
+     - 使用 NavMesh Baking 静态化场景寻路数据
+     - 敌人死亡后通过 Destroy(gameObject, 1f) 延迟销毁，避免瞬时性能开销
+     - 射击使用射线检测而非物理子弹，降低计算开销
+     - UI 面板使用 CanvasGroup 控制显示而非频繁 SetActive，避免重绘开销
+   - 调试：
+     - 使用 Debug.Log 输出关键状态（敌人受伤、玩家死亡等）
+     - Unity 编辑器下通过 Inspector 动态调整参数（伤害值、刷新间隔等）
+     - 设置 Layer 碰撞矩阵避免误检测
+
+五、项目总结与评估
+1. 项目成果评估
+   - 功能完成度：实现了完整的生存射击核心玩法，包含玩家操控、敌人AI、战斗反馈、计分与 Game Over 流程
+   - 技术应用：成功集成了 Cinemachine、DOTween、DamageNumbersPro、TextMesh Pro 等第三方工具提升游戏体验
+   - UI 系统：构建了基于单例 + 抽象基类的可扩展 UI 面板管理框架
+   - 代码质量：采用组件化设计，模块间低耦合，核心模块提供 "My" 版本和参考版本双实现便于对比学习
+   - 可改进点：缺少暂停功能、缺少难度递增机制、关卡单一、缺少多平台输入适配
+
+2. 经验教训总结与未来展望
+   - 经验：
+     - 组件式架构有利于功能复用和调试
+     - 单例模式适用于全局管理类（UIManager/BGM），但需注意生命周期
+     - 第三方插件能大幅提升开发效率和表现力
+     - 使用 Layer 和 Tag 进行碰撞管理比硬编码更灵活
+   - 教训：
+     - 早期应统一代码风格和命名规范，避免 "PlayerHealth" / "MyPlayerHealth" 等冗余版本并存
+     - 需及时清理注释掉的冗余代码，保持项目整洁
+     - 管理器与具体逻辑的职责边界应尽早明确
+   - 未来展望：
+     - 增加难度递增系统（敌人数量/属性随时间提升）
+     - 添加多关卡选择和武器升级系统
+     - 实现移动端触控适配与虚拟摇杆
+     - 增加音效管理器和暂停功能
+     - 接入排行榜或成就系统
